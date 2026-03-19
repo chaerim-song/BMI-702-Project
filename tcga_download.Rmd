@@ -1,0 +1,182 @@
+---
+title: "TCGA_download"
+output: html_document
+date: "2026-03-19"
+---
+```{r}
+if (!requireNamespace("BiocManager", quietly = TRUE)) {
+  install.packages("BiocManager")
+}
+
+BiocManager::install(c("TCGAbiolinks", "SummarizedExperiment"), ask = FALSE, update = TRUE)
+
+```
+
+
+```{r}
+library(TCGAbiolinks)
+library(SummarizedExperiment)
+library(dplyr)
+library(readr)
+```
+
+
+```{r}
+
+dir.create("TCGA_BRCA_out", showWarnings = FALSE)
+setwd("TCGA_BRCA_out")
+
+
+# 1. download clinical
+
+clinical <- GDCquery_clinic(project = "TCGA-BRCA", type = "clinical")
+
+clinical_cart <- clinical %>%
+  transmute(
+    submitter_id = submitter_id,
+    age_at_diagnosis = age_at_diagnosis,
+    stage = ajcc_pathologic_stage,
+    race = race,
+    ethnicity = ethnicity,
+    gender = gender,
+    vital_status = vital_status,
+    days_to_death = days_to_death,
+    days_to_last_follow_up = days_to_last_follow_up
+  )
+write_tsv(clinical, "clinical.tsv")
+write_tsv(clinical_cart, "clinical.cart.tsv")
+
+```
+
+
+```{r}
+#2. download clinical_status and focus on BRCA_Subtype_PAM50
+subtypes <- TCGAquery_subtype(tumor = "BRCA")
+write_tsv(subtypes, "clinical_status.tsv")
+
+```
+
+```{r}
+# 3. out choice of gene list, download transcriptomics data
+gene_list <- c(
+  # Hypoxia signature
+  "VEGFA", "ANGPTL4", "CA9", "EGLN3", "LDHA",
+  "SLC2A1", "ENO1", "PGK1", "HK2", "TPI1",
+  "ALDOA", "GPI", "P4HA1",
+
+  # Penalized Cox selected genes
+  "FLVCR2", "FABP5", "SPINT1"
+)
+
+query <- GDCquery(
+  project = "TCGA-BRCA",
+  data.category = "Transcriptome Profiling",
+  data.type = "Gene Expression Quantification",
+  workflow.type = "STAR - Counts"
+)
+
+GDCdownload(query)
+se <- GDCprepare(query)
+
+
+# counts matrix
+counts <- assay(se, "unstranded")
+
+# gene annotation
+gene_annot <- rowData(se)
+
+# 找 gene symbol
+gene_symbols <- gene_annot$gene_name
+
+# 过滤目标基因
+keep_genes <- gene_symbols %in% gene_list
+
+counts_small <- counts[keep_genes, ]
+gene_symbols_small <- gene_symbols[keep_genes]
+
+# 替换 rownames 为 gene symbol
+rownames(counts_small) <- gene_symbols_small
+
+# log transform（给 survival / ML 用）
+counts_small <- log2(counts_small + 1)
+
+# 处理 sample -> case_id
+sample_barcodes <- colnames(counts_small)
+case_ids <- substr(sample_barcodes, 1, 12)
+
+# 每个 case 保留一个样本
+keep <- !duplicated(case_ids)
+counts_small <- counts_small[, keep]
+colnames(counts_small) <- case_ids[keep]
+
+```
+
+```{r}
+# write gene information to tsv file
+library(dplyr)
+library(readr)
+library(tibble)
+
+rna_df <- counts_small %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "gene")
+
+write_tsv(rna_df, "rna_small.tsv")
+```
+
+
+```{r}
+# merge three data
+clinical <- read_tsv("clinical.tsv")
+pam50 <- read_tsv("clinical_status.tsv")
+rna <- read_tsv("rna_small.tsv")
+
+pam50 <- pam50 %>%
+  rename(submitter_id = patient)  %>%
+  select(submitter_id,BRCA_Subtype_PAM50)
+
+# 转成 sample-level
+rna_long <- rna %>%
+  tidyr::pivot_longer(-gene, names_to = "submitter_id", values_to = "expr") %>%
+  tidyr::pivot_wider(names_from = gene, values_from = expr)
+
+# merge
+data_all <- clinical %>%
+  inner_join(pam50, by = "submitter_id") %>%
+  inner_join(rna_long, by = "submitter_id")
+
+data_small <- data_all %>%
+  select(
+    submitter_id,
+    age_at_diagnosis,
+    stage = ajcc_pathologic_stage,
+    race,
+    ethnicity,
+    gender,
+    vital_status,
+    days_to_death,
+    days_to_last_follow_up,
+    BRCA_Subtype_PAM50,
+    VEGFA, 
+    ANGPTL4,
+    CA9, 
+    EGLN3,
+    LDHA,
+    SLC2A1, 
+    ENO1, 
+    PGK1, 
+    HK2, 
+    TPI1,
+    ALDOA, 
+    GPI, 
+    P4HA1,
+    FLVCR2, 
+    FABP5, 
+    SPINT1
+    )
+
+write_tsv(data_all, "final_dataset.tsv")
+write_tsv(data_small, "final_dataset_selected.tsv")
+
+```
+

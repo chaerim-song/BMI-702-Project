@@ -61,7 +61,7 @@ hypoxia_genes <- c(
 library(survival)
 
 cox_basic <- coxph(
-  Surv(time, event) ~ age_at_diagnosis + stage_simple + BRCA_Subtype_PAM50  + race + FLVCR2 + FABP5+SPINT1+ 
+  Surv(time, event) ~ age_at_diagnosis + stage_simple + BRCA_Subtype_PAM50  + race + ajcc_pathologic_t+ajcc_pathologic_n+ajcc_pathologic_m+FLVCR2 + FABP5+SPINT1+ 
   VEGFA +ANGPTL4+CA9+EGLN3+LDHA+SLC2A1+ENO1+PGK1+HK2+TPI1+ALDOA+GPI+P4HA1,
   data = df2
 )
@@ -74,11 +74,11 @@ library(glmnet)
 library(survival)
 
 model_df <- df2 %>%
-  select(time, event, age_at_diagnosis, stage_simple, BRCA_Subtype_PAM50, race,FLVCR2, FABP5, SPINT1,VEGFA ,ANGPTL4,CA9,EGLN3,LDHA,SLC2A1,ENO1,PGK1,HK2,TPI1,ALDOA,GPI,P4HA1) %>%
+  select(time, event, age_at_diagnosis, stage_simple, BRCA_Subtype_PAM50, race,ajcc_pathologic_t,ajcc_pathologic_n,ajcc_pathologic_m,FLVCR2, FABP5, SPINT1,VEGFA ,ANGPTL4,CA9,EGLN3,LDHA,SLC2A1,ENO1,PGK1,HK2,TPI1,ALDOA,GPI,P4HA1) %>%
   na.omit()
 
 x <- model.matrix(
-  ~ age_at_diagnosis + stage_simple + BRCA_Subtype_PAM50 + race + FLVCR2 + FABP5+SPINT1+VEGFA +ANGPTL4+CA9+EGLN3+LDHA+SLC2A1+ENO1+PGK1+HK2+TPI1+ALDOA+GPI+P4HA1,
+  ~ age_at_diagnosis + stage_simple + BRCA_Subtype_PAM50 + race + ajcc_pathologic_t+ajcc_pathologic_n+ajcc_pathologic_m + FLVCR2 + FABP5+SPINT1+VEGFA +ANGPTL4+CA9+EGLN3+LDHA+SLC2A1+ENO1+PGK1+HK2+TPI1+ALDOA+GPI+P4HA1,
   data = model_df
 )[, -1]
 

@@ -1,0 +1,193 @@
+---
+title: "Cox"
+output: html_document
+date: "2026-03-19"
+---
+```{r}
+library(dplyr)
+library(readr)
+library(stringr)
+
+df <- read_tsv("final_dataset_selected.tsv")
+
+# 1. enumerate survival outcome
+df2 <- df %>%
+  mutate(
+    event = case_when(
+      vital_status %in% c("Dead", "dead", "DEAD") ~ 1,
+      vital_status %in% c("Alive", "alive", "ALIVE") ~ 0,
+      TRUE ~ NA_real_
+    ),
+    time = case_when(
+      event == 1 ~ as.numeric(days_to_death),
+      event == 0 ~ as.numeric(days_to_last_follow_up),
+      TRUE ~ NA_real_
+    )
+  )
+
+# 2. clean stage
+df2 <- df2 %>%
+  mutate(
+    stage_simple = case_when(
+      str_detect(stage, regex("^stage i(?!v)", ignore_case = TRUE)) ~ "Stage I",
+      str_detect(stage, regex("^stage ii(?!i?i?v)", ignore_case = TRUE)) ~ "Stage II",
+      str_detect(stage, regex("^stage iii", ignore_case = TRUE)) ~ "Stage III",
+      str_detect(stage, regex("^stage iv", ignore_case = TRUE)) ~ "Stage IV",
+      TRUE ~ NA_character_
+    ),
+    stage_simple = factor(stage_simple, levels = c("Stage I", "Stage II", "Stage III", "Stage IV")),
+    BRCA_Subtype_PAM50 = factor(BRCA_Subtype_PAM50)
+  )
+
+# 3. keep useful rows
+df2 <- df2 %>%
+  filter(!is.na(time), !is.na(event), time > 0,
+         !is.na(age_at_diagnosis),
+         !is.na(stage_simple),
+         !is.na(BRCA_Subtype_PAM50))
+```
+```{r}
+hypoxia_genes <- c(
+  "VEGFA", "ANGPTL4", "CA9", "EGLN3", "LDHA",
+  "SLC2A1", "ENO1", "PGK1", "HK2", "TPI1",
+  "ALDOA", "GPI", "P4HA1"
+)
+
+```
+
+```{r}
+#baseline Cox
+
+library(survival)
+
+cox_basic <- coxph(
+  Surv(time, event) ~ age_at_diagnosis + stage_simple + BRCA_Subtype_PAM50  + race + FLVCR2 + FABP5+SPINT1+ 
+  VEGFA +ANGPTL4+CA9+EGLN3+LDHA+SLC2A1+ENO1+PGK1+HK2+TPI1+ALDOA+GPI+P4HA1,
+  data = df2
+)
+
+summary(cox_basic)
+```
+```{r}
+#panelized Cox
+library(glmnet)
+library(survival)
+
+model_df <- df2 %>%
+  select(time, event, age_at_diagnosis, stage_simple, BRCA_Subtype_PAM50, race,FLVCR2, FABP5, SPINT1,VEGFA ,ANGPTL4,CA9,EGLN3,LDHA,SLC2A1,ENO1,PGK1,HK2,TPI1,ALDOA,GPI,P4HA1) %>%
+  na.omit()
+
+x <- model.matrix(
+  ~ age_at_diagnosis + stage_simple + BRCA_Subtype_PAM50 + race + FLVCR2 + FABP5+SPINT1+VEGFA +ANGPTL4+CA9+EGLN3+LDHA+SLC2A1+ENO1+PGK1+HK2+TPI1+ALDOA+GPI+P4HA1,
+  data = model_df
+)[, -1]
+
+y <- Surv(model_df$time, model_df$event)
+
+set.seed(123)
+cvfit <- cv.glmnet(
+  x = x,
+  y = y,
+  family = "cox",
+  alpha = 0.5,      # elastic net; 0=ridge, 1=lasso
+  nfolds = 10
+)
+
+plot(cvfit)
+
+best_lambda <- cvfit$lambda.min
+best_lambda_1se <- cvfit$lambda.1se
+
+fit <- glmnet(
+  x = x,
+  y = y,
+  family = "cox",
+  alpha = 0.5,
+  lambda = best_lambda
+)
+
+coef(fit)
+```
+```{r}
+model_df$risk_score <- as.numeric(
+  predict(cvfit, newx = x, s = "lambda.min", type = "link")
+)
+```
+
+```{r}
+library(survminer)
+
+model_df$risk_group <- ifelse(
+  model_df$risk_score >= median(model_df$risk_score, na.rm = TRUE),
+  "High risk", "Low risk"
+)
+
+fit_km <- survfit(Surv(time, event) ~ risk_group, data = model_df)
+
+ggsurvplot(
+  fit_km,
+  data = model_df,
+  pval = TRUE
+)
+```
+
+
+```{r}
+# How each factor contribute to the final risk score
+coef_vec <- as.numeric(coef(cvfit, s = "lambda.min"))
+
+contribution_matrix <- sweep(x, 2, coef_vec, "*")
+contribution_matrix
+```
+
+```{r}
+# 1. 重新运行交叉验证，指定衡量指标为 C-index
+set.seed(123)
+cvfit_c <- cv.glmnet(
+  x = x,
+  y = y,
+  family = "cox",
+  alpha = 0.5,
+  nfolds = 10,
+  type.measure = "C"  # 关键：强制要求计算 C-index
+)
+
+# 2. 提取最棒的 C-index 值
+# cvfit_c$cvm 存储了每个 lambda 对应的 C-index 平均值
+best_c_index <- max(cvfit_c$cvm) 
+
+print(paste("Cross-validated C-index:", round(best_c_index, 4)))
+
+# 3. 画出 C-index 随 lambda 变化的图
+plot(cvfit_c)
+
+```
+```{r}
+dim(model_df)
+dim(df2)
+```
+
+```{r}
+# 提取 model_df 中的风险信息（保留一个唯一标识符，如果没有 ID，我们直接根据行名或列合并）
+# 假设你的 df2 有唯一标识符列（比如 'sample_id'），请替换下面的 'sample_id'
+# 如果没有 ID 列，可以使用原始行号
+
+# 创建一个临时表存储结果
+risk_results <- model_df %>%
+  select(time, event, age_at_diagnosis, risk_score, risk_group)
+
+# 如果你的原始数据 df2 和 model_df 的行序完全一致（且没有在 filter 之后打乱）
+# 推荐使用 left_join，这样最安全
+# 这里假设我们通过 time 和 event 等关键信息进行匹配（如果有 ID 更好）
+df2_final <- df2 %>%
+  left_join(risk_results) 
+
+# 检查一下是否合并成功
+head(df2_final %>% select(time, event, risk_score, risk_group))
+
+```
+```{r}
+write_tsv(df2_final, "final_dataset_with_riskscore.tsv")
+```
+
+

@@ -186,8 +186,40 @@ df2_final <- df2 %>%
 head(df2_final %>% select(time, event, risk_score, risk_group))
 
 ```
+
+```{r}
+# 1. 将 contribution_matrix 转为数据框以便处理
+contrib_df <- as.data.frame(contribution_matrix)
+
+# 2. 定义一个函数，提取每行绝对值最大的前3个列名
+get_top_3_contributors <- function(row) {
+  # 取绝对值排序
+  sorted_indices <- order(abs(row), decreasing = TRUE)
+  # 提取前三个列名
+  top_names <- names(row)[sorted_indices[1:3]]
+  return(top_names)
+}
+
+# 3. 应用函数并生成 3 个新列
+top_contributors <- t(apply(contrib_df, 1, get_top_3_contributors))
+colnames(top_contributors) <- c("Top1_Contributor", "Top2_Contributor", "Top3_Contributor")
+
+# 4. 将这三列合并回 model_df
+model_df <- cbind(model_df, top_contributors)
+
+# 5. 更新到你的最终表 df2_final 中
+# 重新执行一遍 left_join，这次 model_df 已经包含了 Top 贡献者
+df2_final <- df2 %>%
+  left_join(model_df %>% select(time, event, age_at_diagnosis, risk_score, risk_group, 
+                                 Top1_Contributor, Top2_Contributor, Top3_Contributor))
+
+# 6. 保存
+write_tsv(df2_final, "final_dataset_with_riskscore_and_contributors.tsv")
+
+# 查看结果
+head(df2_final %>% select(risk_score, Top1_Contributor, Top2_Contributor, Top3_Contributor))
+```
+
 ```{r}
 write_tsv(df2_final, "final_dataset_with_riskscore.tsv")
 ```
-
-

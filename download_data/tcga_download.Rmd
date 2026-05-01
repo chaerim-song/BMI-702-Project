@@ -84,27 +84,24 @@ counts <- assay(se, "unstranded")
 
 # gene annotation
 gene_annot <- rowData(se)
-
-# 找 gene symbol
 gene_symbols <- gene_annot$gene_name
 
-# 过滤目标基因
+# gene filter
 keep_genes <- gene_symbols %in% gene_list
 
 counts_small <- counts[keep_genes, ]
 gene_symbols_small <- gene_symbols[keep_genes]
 
-# 替换 rownames 为 gene symbol
+# row names to gene symbol
 rownames(counts_small) <- gene_symbols_small
 
-# log transform（给 survival / ML 用）
+# log transform
 counts_small <- log2(counts_small + 1)
 
-# 处理 sample -> case_id
+# sample -> case_id
 sample_barcodes <- colnames(counts_small)
 case_ids <- substr(sample_barcodes, 1, 12)
 
-# 每个 case 保留一个样本
 keep <- !duplicated(case_ids)
 counts_small <- counts_small[, keep]
 colnames(counts_small) <- case_ids[keep]
@@ -135,7 +132,6 @@ pam50 <- pam50 %>%
   rename(submitter_id = patient)  %>%
   select(submitter_id,BRCA_Subtype_PAM50)
 
-# 转成 sample-level
 rna_long <- rna %>%
   tidyr::pivot_longer(-gene, names_to = "submitter_id", values_to = "expr") %>%
   tidyr::pivot_wider(names_from = gene, values_from = expr)

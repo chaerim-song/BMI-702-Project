@@ -141,85 +141,114 @@ contribution_matrix
 ```
 
 ```{r}
-# 1. 重新运行交叉验证，指定衡量指标为 C-index
-set.seed(123)
-cvfit_c <- cv.glmnet(
-  x = x,
-  y = y,
-  family = "cox",
-  alpha = 0.5,
-  nfolds = 10,
-  type.measure = "C"  # 关键：强制要求计算 C-index
-)
-
-# 2. 提取最棒的 C-index 值
-# cvfit_c$cvm 存储了每个 lambda 对应的 C-index 平均值
-best_c_index <- max(cvfit_c$cvm) 
-
-print(paste("Cross-validated C-index:", round(best_c_index, 4)))
-
-# 3. 画出 C-index 随 lambda 变化的图
-plot(cvfit_c)
-
-```
-```{r}
 dim(model_df)
 dim(df2)
 ```
 
 ```{r}
-# 提取 model_df 中的风险信息（保留一个唯一标识符，如果没有 ID，我们直接根据行名或列合并）
-# 假设你的 df2 有唯一标识符列（比如 'sample_id'），请替换下面的 'sample_id'
-# 如果没有 ID 列，可以使用原始行号
 
-# 创建一个临时表存储结果
 risk_results <- model_df %>%
   select(time, event, age_at_diagnosis, risk_score, risk_group)
 
-# 如果你的原始数据 df2 和 model_df 的行序完全一致（且没有在 filter 之后打乱）
-# 推荐使用 left_join，这样最安全
-# 这里假设我们通过 time 和 event 等关键信息进行匹配（如果有 ID 更好）
 df2_final <- df2 %>%
   left_join(risk_results) 
 
-# 检查一下是否合并成功
 head(df2_final %>% select(time, event, risk_score, risk_group))
 
 ```
 
 ```{r}
-# 1. 将 contribution_matrix 转为数据框以便处理
+
 contrib_df <- as.data.frame(contribution_matrix)
 
-# 2. 定义一个函数，提取每行绝对值最大的前3个列名
 get_top_3_contributors <- function(row) {
-  # 取绝对值排序
   sorted_indices <- order(abs(row), decreasing = TRUE)
-  # 提取前三个列名
+
   top_names <- names(row)[sorted_indices[1:3]]
   return(top_names)
 }
 
-# 3. 应用函数并生成 3 个新列
 top_contributors <- t(apply(contrib_df, 1, get_top_3_contributors))
 colnames(top_contributors) <- c("Top1_Contributor", "Top2_Contributor", "Top3_Contributor")
 
-# 4. 将这三列合并回 model_df
 model_df <- cbind(model_df, top_contributors)
 
-# 5. 更新到你的最终表 df2_final 中
-# 重新执行一遍 left_join，这次 model_df 已经包含了 Top 贡献者
 df2_final <- df2 %>%
   left_join(model_df %>% select(time, event, age_at_diagnosis, risk_score, risk_group, 
                                  Top1_Contributor, Top2_Contributor, Top3_Contributor))
 
-# 6. 保存
 write_tsv(df2_final, "final_dataset_with_riskscore_and_contributors.tsv")
 
-# 查看结果
 head(df2_final %>% select(risk_score, Top1_Contributor, Top2_Contributor, Top3_Contributor))
 ```
 
 ```{r}
 write_tsv(df2_final, "final_dataset_with_riskscore.tsv")
 ```
+
+```{r}
+compute_cox_cindex <- function(data, feature_formula, seed = 123) {
+  library(glmnet)
+  library(survival)
+
+  # 1. build model matrix
+  model_df <- data %>%
+    select(time, event, all_of(all.vars(feature_formula))) %>%
+    na.omit()
+
+  x <- model.matrix(feature_formula, data = model_df)[, -1]
+  y <- Surv(model_df$time, model_df$event)
+
+  set.seed(seed)
+
+  # 2. cross-validated Cox
+  cvfit <- cv.glmnet(
+    x = x,
+    y = y,
+    family = "cox",
+    alpha = 0.5,
+    nfolds = 10,
+    type.measure = "C"
+  )
+
+  # 3. return best C-index
+  best_cindex <- max(cvfit$cvm)
+
+  return(best_cindex)
+}
+# clinical
+clinical_formula <- ~ 
+  BRCA_Subtype_PAM50 +
+  race +
+  ajcc_pathologic_t +
+  ajcc_pathologic_n +
+  ajcc_pathologic_m
+
+# genomic
+genomic_formula <- ~ FLVCR2 + FABP5 + SPINT1 +
+  VEGFA + ANGPTL4 + CA9 + EGLN3 + LDHA +
+  SLC2A1 + ENO1 + PGK1 + HK2 + TPI1 +
+  ALDOA + GPI + P4HA1
+
+# full
+full_formula <- ~ age_at_diagnosis +
+  stage_simple +
+  BRCA_Subtype_PAM50 +
+  race +
+  ajcc_pathologic_t +
+  ajcc_pathologic_n +
+  ajcc_pathologic_m +
+  FLVCR2 + FABP5 + SPINT1 +
+  VEGFA + ANGPTL4 + CA9 + EGLN3 + LDHA +
+  SLC2A1 + ENO1 + PGK1 + HK2 + TPI1 +
+  ALDOA + GPI + P4HA1
+
+c_full <- compute_cox_cindex(df2, full_formula)
+c_clinical <- compute_cox_cindex(df2, clinical_formula)
+c_genomic <- compute_cox_cindex(df2, genomic_formula)
+
+cat("Full model C-index:", round(c_full, 3), "\n")
+cat("Clinical only C-index:", round(c_clinical, 3), "\n")
+cat("Genomic only C-index:", round(c_genomic, 3), "\n")
+```
+

@@ -1,26 +1,98 @@
 # BMI-702-Project
 
-Topic: Analyze molecular and clinical cancer data from breast cancer patients to predict survival outcomes. This includes processing genomic and transcriptomic profiles (e.g. gene expression, mutation status, and copy number variation). Apply statistical / machine learning approaches like Cox proportional hazards models, regularized regression, or survival-prediction algorithms to discover prognostic biomarkers and build predictive models. The overall goal is to improve risk stratification, uncover biologically meaningful predictors of disease progression, and support more personalized treatment decision-making in breast cancer care. 
 
-Data: 
+Survival prediction models, such as the Cox proportional hazards (Cox-PH) \cite{cox_paper} model, are widely used in breast cancer for risk stratification. However, the output of the Cox-PH is difficult for patients to interpret and is not directly actionable in the context of clinical decision-making. The lack of interoperability for the Cox-PH limits its clinical utility, where treatment is usually based on the standardized guideline (e.g., the NCCN clinical practice guideline). In parallel, recent studies have explored the use of the Large Language Model (LLM) based on the retrieval information from clinical guidelines for the treatment recommendations in breast cancer \cite{advance_RAG}. However, none of the studies have integrated the patient-specific prognostic signals with guideline-grounding recommendations. Therefore, there remains a gap between predictive risk score and clinical interpretation. Existing approaches either provide accurate but non-interpretable risk estimates or non-personalized clinical guidance. In this way, it highlights the need for a framework that connects quantitative risk estimation with clinically grounded and guideline-aligned explanations.
 
-Genomics and clinical data from TCGA (https://www.cancer.gov/ccg/research/genome-sequencing/tcga) 
+We aim to develop a guideline-grounded treatment recommendation and personalized explanation framework that integrates Cox survival risk scores with NCCN guideline retrieval, enabling the translation of patient-specific information into structured and personalized clinical interpretations. Our research question is whether integrating Cox model outputs with NCCN guideline retrieval can generate explanations that are less hallucinatory, more faithful, and more clinically useful than baseline approaches. The explanations produced by our pipeline are aimed to be personalized, interpretable, and clinically aligned.
 
-TGCA-BRCA: https://www.kaggle.com/datasets/samdemharter/brca-multiomics-tcga
+# Pipeline
 
-TCGA-GBM and TCGA-LGG: https://github.com/mahmoodlab/PathomicFusion
-
-Foundation models: 
-
-Deo SV, Deo V, Sundaram V. Survival analysis-part 2: Cox proportional hazards model. Indian J Thorac Cardiovasc Surg. 2021 Mar;37(2):229-233. doi: 10.1007/s12055-020-01108-7. Epub 2021 Jan 2. PMID: 33642726; PMCID: PMC7876211.
-
-Simon N, Friedman J, Hastie T, Tibshirani R. Regularization Paths for Cox's Proportional Hazards Model via Coordinate Descent. J Stat Softw. 2011 Mar;39(5):1-13. doi: 10.18637/jss.v039.i05. PMID: 27065756; PMCID: PMC4824408.
+<img width="1314" height="538" alt="截屏2026-05-01 下午5 57 33" src="https://github.com/user-attachments/assets/474a31ca-cce1-45eb-b875-8ed1b4fd7a6d" />
 
 
-Next steps:
-Employ existing survival models to learn some prognostic features using our data
-Combine with some clinical LLMs (maybe fine-tune some existing one) for patient-level tasks such as treatment prediction
+---
 
-Reference:
-Mariathasan, S., Turley, S., Nickles, D. et al. TGFβ attenuates tumour response to PD-L1 blockade by contributing to exclusion of T cells. Nature 554, 544–548 (2018). https://doi.org/10.1038/nature25501
-MEDEA: https://www.biorxiv.org/content/biorxiv/early/2026/01/20/2026.01.16.696667.full.pdf
+## Folder Details
+
+### 1. `download_data/`
+
+**Contents:**
+- Scripts for TCGA data download
+- Clinical and genomic data preprocessing
+
+### 2. `Cox_survival_model/`
+
+**Contents:**
+- `Cox.Rmd` / `.R` scripts  
+  - Survival outcome construction (`time`, `event`)
+  - Feature preprocessing (e.g., stage simplification)
+  - Cox model fitting
+- Output files:
+  - `final_dataset_with_riskscore.tsv`
+  - `final_dataset_with_riskscore_and_contributors.tsv`
+
+
+### 3. `baseline/`
+
+**Contents:**
+- code to run baseline
+- baseline results
+
+
+### 4. `pipeline/`
+
+**Contents:**
+- CoT Prompt construction
+- NCCN guideline retrieval (RAG)
+- Output formatting
+- pipeline results
+
+### 5. `LLM_evaluation/`
+
+**Evaluation Dimensions:**
+- Comprehensiveness  
+- Factual Consistency  
+- Risk Integration  
+- Clinical Relevance  
+
+**Contents:**
+- Evaluation scripts
+- Results
+  
+---
+
+# How to Run
+### 1 — Prepare data
+
+`cd download_data`
+
+run `tcga_download.Rmd`
+
+### 2 — Train Cox model
+
+`cd Cox_survival_model`
+
+run `Cox.Rmd`
+
+### 3 — Generate explanations
+
+`cd pipeline`
+
+`python run_pipeline.py`
+
+### 4 — Evaluate
+
+`cd LLM_evaluation`
+
+`python gptjudge.py`
+
+# Requirements
+
+This pipeline requires access to an LLM API (e.g., GPT or OpenBioLLM).
+API usage is configured in the code, and instructions are provided to:
+- set your API key
+- switch to alternative LLM providers if needed
+
+Please refer to the corresponding scripts for details.
+
+  

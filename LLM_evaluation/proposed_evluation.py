@@ -4,10 +4,13 @@ import time
 import pandas as pd
 from openai import OpenAI
 
-INPUT_FILE = "openbio_rag_output.tsv"
-OUTPUT_FILE = "openbio_rag_evaluated.tsv"
+#INPUT_FILE  ='vg_rag_cot_output_test50.tsv'
+INPUT_FILE = "vg_rag_cot_output.tsv"
+#OUTPUT_FILE = "vg_rag_cot_evaluated_test100.tsv"
+OUTPUT_FILE = "vg_rag_cot_evaluated_2.tsv"
+
 EVAL_MODEL = "gpt-5.4-mini"
-os.environ["OPENAI_API_KEY"] = "key"
+OUTPUT_COL = "vg_rag_cot_output"
 
 client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
@@ -17,9 +20,7 @@ def safe_str(x):
         return "NA"
     return str(x).strip()
 
-
-
-
+OUTPUT_COL = "vg_rag_cot_output"
 
 def build_eval_prompt(row):
     return f"""
@@ -72,7 +73,7 @@ subtype: {safe_str(row.get("BRCA_Subtype_PAM50"))}
 node_status: {safe_str(row.get("ajcc_pathologic_n"))}
 
 LLM-generated explanation to evaluate:
-{safe_str(row.get("openbio_rag_verified_output"))}
+{safe_str(row.get(OUTPUT_COL))}
 
 Retrieved NCCN evidence:
 {safe_str(row.get("retrieved_nccn_evidence"))}
@@ -99,6 +100,30 @@ Return ONLY valid JSON in this exact schema:
 
 
 
+
+
+def evaluate_one(row):
+    prompt = build_eval_prompt(row)
+
+    response = client.responses.create(
+        model=EVAL_MODEL,
+        input=prompt,
+        temperature=0
+    )
+
+    text = response.output_text.strip()
+
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return {
+            "comprehensiveness": None,
+            "factual_consistency": None,
+            "risk_integration": None,
+            "clinical_relevance": None,
+            "overall_score": None,
+            "brief_justification": f"JSON_PARSE_ERROR: {text}"
+        }
 
 
 def main(test_n=None):
@@ -130,12 +155,18 @@ def main(test_n=None):
         time.sleep(0.3)
 
     eval_df = pd.DataFrame(eval_results)
-
     out = pd.concat([df.reset_index(drop=True), eval_df], axis=1)
+
     out.to_csv(OUTPUT_FILE, sep="\t", index=False)
 
     print("Saved to:", OUTPUT_FILE)
-    print(out[["comprehensiveness", "factual_consistency", "risk_integration", "clinical_relevance", "overall_score"]].mean())
+    print(out[[
+        "comprehensiveness",
+        "factual_consistency",
+        "risk_integration",
+        "clinical_relevance",
+        "overall_score"
+    ]].mean())
 
 if __name__ == "__main__":
     main()
